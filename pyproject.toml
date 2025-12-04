@@ -1,6 +1,6 @@
 [project]
 name = "semantic-weaver"
-version = "0.1.0"
+version = "0.1.1"
 description = "Semantic Weaver is a Python library designed to migrate semantic model definitions from systems into Microsoft Fabric Semantic Models."
 authors = [
     {name = "Tonio Lora", email = "tonio.lora@microsoft.com"},
