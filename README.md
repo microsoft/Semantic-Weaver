@@ -51,14 +51,15 @@ Semantic Weaver features a plugin architecture, allowing contributors to easily 
 .github/            # GitHub workflows and configurations
 assets/             # Project assets and images
 docs/               # Documentation
-semanticweaver/
-├── core/           # Core functionality
-│   └── api/        # REST API calls for Fabric deployment
-├── models/         # Pydantic models for semantic representations
-└── plugins/        # Source system plugins
-    └── databricks/ # Databricks Metric Views connector
+src/
+└── semanticweaver/
+    ├── core/           # Core functionality
+    │   └── api/        # REST API calls for Fabric deployment
+    ├── models/         # Pydantic models for semantic representations
+    ├── plugins/        # Source system plugins
+    │   └── databricks/ # Databricks Metric Views connector
+    └── weaver.py       # Main entry point
 tests/              # Unit and integration tests
-weaver.py           # Main entry point
 ```
 
 ## Table of Contents

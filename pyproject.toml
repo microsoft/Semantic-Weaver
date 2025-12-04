@@ -1,9 +1,18 @@
 [project]
 name = "semantic-weaver"
 version = "0.1.0"
-description = "Add your description here"
+description = "Semantic Weaver is a Python library designed to migrate semantic model definitions from systems into Microsoft Fabric Semantic Models."
+authors = [
+    {name = "Tonio Lora", email = "tonio.lora@microsoft.com"},
+    {name = "Tim Arif", email = "timarif@microsoft.com"},
+    {name = "Omer Ahmad", email = "Omer.Ahmad@microsoft.com"},
+]
 readme = "README.md"
 requires-python = ">=3.11"
+
+license-files = ["LICENSE"]
+keywords = ["Fabric", "Fabric Semantic Model", "Databricks", "Looker", "Power BI", "Semantic Model", "Migration"]
+
 dependencies = [
     "databricks-sdk>=0.73.0",
     "pydantic>=2.12.5",
@@ -14,4 +23,42 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.0.1",
+    "ruff>=0.14.7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/microsoft/Semantic-Weaver"
+Documentation = "https://github.com/microsoft/Semantic-Weaver/blob/main/docs/PolicyWeaver.md"
+Repository = "https://github.com/microsoft/Semantic-Weaver.git"
+Issues = "https://github.com/microsoft/Semantic-Weaver/issues"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semanticweaver"]
+
+[tool.ruff]
+# Match your code style
+line-length = 120
+target-version = "py311"   # set to your runtime: py38/py39/py310/py311/py312
+
+# What to check
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # import sorting
+  "B",   # bugbear
+  "UP",  # pyupgrade
+  "S",   # security (bandit subset)
+]
+
+# Per-file exceptions (example)
+per-file-ignores = { "tests/**" = ["S101"] }  # allow assert in tests
+
+# Formatter (if you want Ruff to format, no Black)
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false

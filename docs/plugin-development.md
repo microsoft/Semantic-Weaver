@@ -14,10 +14,10 @@ Plugins enable Semantic Weaver to connect to different source systems and extrac
 
 ### Step 1: Create the Plugin Folder
 
-Create a new folder under `semanticweaver/plugins/` with your source system name:
+Create a new folder under `src/semanticweaver/plugins/` with your source system name:
 
 ```
-semanticweaver/plugins/
+src/semanticweaver/plugins/
 ├── databricks/
 ├── looker/          # New plugin
 │   ├── __init__.py
