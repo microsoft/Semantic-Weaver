@@ -17,7 +17,7 @@ class WeaverAgent:
 
     This class coordinates the entire process of:
     1. Reading semantic model definitions from source systems
-    2. Transforming them into an intermediate representation
+    2. Transforming them into a Fabric semantic model representation
     3. Deploying to Microsoft Fabric as Power BI Semantic Models
     """
 

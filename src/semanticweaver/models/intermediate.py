@@ -102,7 +102,7 @@ class IntermediateRelationship(BaseModel):
 
 class IntermediateSemanticModel(BaseModel):
     """
-    The intermediate representation of a semantic model.
+    The Fabric semantic model representation.
     
     This is the common format used between source extraction and Fabric deployment.
     It captures tables, columns, measures, and relationships in a generic way.

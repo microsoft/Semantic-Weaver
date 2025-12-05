@@ -8,7 +8,7 @@ Plugins enable Semantic Weaver to connect to different source systems and extrac
 
 1. Connect and authenticate to the source system
 2. Extract semantic model metadata (tables, columns, measures, relationships)
-3. Convert the extracted data to the intermediate representation
+3. Convert the extracted data to the Fabric semantic model representation
 
 ## Creating a New Plugin
 

@@ -32,7 +32,7 @@ Semantic Weaver is a Python library designed to migrate semantic model definitio
 
 The library achieves this by:
 1. **Reading** the source system semantic model definition
-2. **Creating** an intermediate generic representation
+2. **Creating** a Fabric semantic model representation
 3. **Deploying** a proper Power BI Semantic Model to a Microsoft Fabric Workspace
 
 Semantic Weaver features a plugin architecture, allowing contributors to easily add support for new source systems.
@@ -42,7 +42,7 @@ Semantic Weaver features a plugin architecture, allowing contributors to easily 
 - **Microsoft Fabric Integration**: Direct deployment of semantic models to Fabric Workspaces
 - **Multiple Source Systems**: Support for Databricks Metric Views with more connectors planned
 - **Plugin Architecture**: Extensible framework allowing easy addition of new source systems
-- **Intermediate Representation**: Generic semantic model format enabling cross-platform migrations
+- **Fabric Semantic Model Representation**: Power BI-compatible semantic model format enabling cross-platform migrations
 - **Runs Anywhere**: Execute from Fabric Notebooks or any Python runtime environment
 
 ## Project Structure
@@ -188,7 +188,7 @@ The plugin architecture makes it easy to add support for new source systems:
 2. Implement the required interfaces to:
    - Connect to the source system
    - Extract semantic model definitions
-   - Convert to the intermediate representation
+   - Convert to the Fabric semantic model representation
 3. Add corresponding Pydantic models in `semanticweaver/models/`
 4. Submit a pull request!
 

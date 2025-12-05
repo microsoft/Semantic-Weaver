@@ -541,7 +541,7 @@ class DatabricksPlugin(BaseSourcePlugin):
             prefix: The prefix to add to the model name.
         
         Returns:
-            IntermediateSemanticModel: The intermediate representation.
+            IntermediateSemanticModel: The Fabric semantic model representation.
         """
         # Create model name with prefix
         model_name = f"{prefix}{metric_view.name}"

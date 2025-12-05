@@ -2,7 +2,7 @@
 Semantic model transformation logic.
 
 This module transforms source-specific semantic models into the
-intermediate representation that can be deployed to Fabric.
+Fabric semantic model representation that can be deployed to a Fabric Workspace.
 """
 
 from __future__ import annotations
@@ -107,14 +107,14 @@ class SemanticModelTransformer:
 
     def transform(self, source_model: Any) -> IntermediateSemanticModel:
         """
-        Transform a source-specific model to intermediate representation.
+        Transform a source-specific model to Fabric semantic model representation.
 
         Args:
             source_model: The semantic model extracted from the source system.
                          Supports DatabricksMetricView.
 
         Returns:
-            IntermediateSemanticModel: The generic intermediate representation.
+            IntermediateSemanticModel: The Fabric semantic model representation.
 
         Raises:
             TransformationError: If transformation fails or unsupported model type.
@@ -134,7 +134,7 @@ class SemanticModelTransformer:
         self, metric_view: DatabricksMetricView
     ) -> IntermediateSemanticModel:
         """
-        Transform a Databricks Metric View to intermediate representation.
+        Transform a Databricks Metric View to Fabric semantic model representation.
 
         Args:
             metric_view: The Databricks Metric View to transform.
@@ -720,7 +720,7 @@ class SemanticModelTransformer:
 
     def to_fabric_model(self, intermediate: IntermediateSemanticModel) -> FabricSemanticModel:
         """
-        Convert intermediate representation to Fabric semantic model format.
+        Convert Fabric semantic model representation to final Fabric deployment format.
 
         Args:
             intermediate: The intermediate semantic model representation.

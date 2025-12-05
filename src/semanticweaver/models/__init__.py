@@ -4,7 +4,7 @@ Pydantic models for Semantic Weaver.
 This package contains:
 - Base configuration models
 - Source-specific models (Databricks, Looker, etc.)
-- Intermediate representation models
+- Fabric semantic model representation models
 - Fabric semantic model definitions
 """
 

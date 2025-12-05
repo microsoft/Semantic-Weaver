@@ -521,7 +521,7 @@ class FabricSemanticModel(BaseModel):
     @classmethod
     def from_intermediate(cls, intermediate: IntermediateSemanticModel) -> FabricSemanticModel:
         """
-        Create a Fabric semantic model from intermediate representation.
+        Create a Fabric semantic model from source model data.
 
         Args:
             intermediate: The intermediate semantic model.

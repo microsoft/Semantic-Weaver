@@ -31,7 +31,7 @@ class TestFabricConfig:
 
 
 class TestIntermediateModels:
-    """Tests for intermediate representation models."""
+    """Tests for Fabric semantic model representation models."""
     
     def test_intermediate_column_creation(self):
         """Test creating an IntermediateColumn."""
