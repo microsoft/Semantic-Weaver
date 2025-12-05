@@ -6,7 +6,8 @@ the required methods for authentication and extraction.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
+
 from semanticweaver.models.intermediate import IntermediateSemanticModel
 
 
@@ -21,7 +22,7 @@ class BaseSourcePlugin(ABC):
     
     All source plugins must implement:
     - authenticate(): Authenticate to the source system
-    - extract_semantic_model(): Extract and return the semantic model
+    - extract_semantic_models(): Extract and return semantic models (one per metric view)
     
     Optional methods:
     - validate_connection(): Test the connection to source
@@ -49,17 +50,39 @@ class BaseSourcePlugin(ABC):
         pass
     
     @abstractmethod
-    async def extract_semantic_model(self) -> IntermediateSemanticModel:
+    async def extract_semantic_models(self) -> list[IntermediateSemanticModel]:
         """
-        Extract the semantic model from the source system.
+        Extract semantic models from the source system.
+        
+        Queries all Metric Views (or equivalent) from the source and creates
+        one IntermediateSemanticModel for each. The model name is formed by
+        combining the configured prefix with the metric view name.
         
         Returns:
-            IntermediateSemanticModel: The extracted model in intermediate format.
+            list[IntermediateSemanticModel]: List of extracted models, one per metric view.
         
         Raises:
             ExtractionError: If extraction fails.
         """
         pass
+    
+    async def extract_semantic_model(self) -> IntermediateSemanticModel:
+        """
+        Extract a single semantic model from the source system.
+        
+        DEPRECATED: Use extract_semantic_models() instead to get all metric views.
+        This method returns only the first model for backwards compatibility.
+        
+        Returns:
+            IntermediateSemanticModel: The first extracted model.
+        
+        Raises:
+            ExtractionError: If extraction fails.
+        """
+        models = await self.extract_semantic_models()
+        if not models:
+            raise ExtractionError("No semantic models found in source system")
+        return models[0]
     
     async def validate_connection(self) -> bool:
         """

@@ -5,9 +5,7 @@ Tests for Semantic Weaver models.
 import pytest
 from semanticweaver.models.base import (
     FabricConfig,
-    ServicePrincipalConfig,
-    SourceConfig,
-    SourceType
+    ServicePrincipalConfig
 )
 from semanticweaver.models.intermediate import (
     IntermediateSemanticModel,

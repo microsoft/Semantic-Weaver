@@ -425,3 +425,4 @@ dist
 
 src/semantic_weaver.egg-info
 
+config.yml

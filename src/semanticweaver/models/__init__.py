@@ -9,14 +9,14 @@ This package contains:
 """
 
 from semanticweaver.models.base import BaseSourceMap, FabricConfig, ServicePrincipalConfig
+from semanticweaver.models.fabric import FabricSemanticModel
 from semanticweaver.models.intermediate import (
-    IntermediateSemanticModel,
-    IntermediateTable,
     IntermediateColumn,
     IntermediateMeasure,
-    IntermediateRelationship
+    IntermediateRelationship,
+    IntermediateSemanticModel,
+    IntermediateTable,
 )
-from semanticweaver.models.fabric import FabricSemanticModel
 
 __all__ = [
     "BaseSourceMap",

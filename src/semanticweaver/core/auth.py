@@ -4,7 +4,7 @@ Authentication management for Semantic Weaver.
 This module handles authentication to both source systems and Microsoft Fabric.
 """
 
-from typing import Optional
+
 from semanticweaver.models.base import BaseSourceMap
 
 
@@ -30,8 +30,8 @@ class AuthenticationManager:
             config: The source configuration containing credentials.
         """
         self.config = config
-        self._fabric_token: Optional[str] = None
-        self._source_token: Optional[str] = None
+        self._fabric_token: str | None = None
+        self._source_token: str | None = None
     
     async def authenticate(self) -> None:
         """

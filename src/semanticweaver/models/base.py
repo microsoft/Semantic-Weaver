@@ -5,9 +5,9 @@ This module defines the base Pydantic models for configuration
 that are shared across all source systems.
 """
 
-from typing import Optional, Any, TYPE_CHECKING
-from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 import yaml
 from pydantic import BaseModel, Field
 
@@ -15,21 +15,14 @@ if TYPE_CHECKING:
     from semanticweaver.plugins.base import BaseSourcePlugin
 
 
-class SourceType(str, Enum):
-    """Supported source system types."""
-    DATABRICKS = "DATABRICKS"
-    LOOKER = "LOOKER"
-    # Add more source types as plugins are developed
-
-
 class FabricConfig(BaseModel):
     """Configuration for the target Microsoft Fabric workspace."""
-    
+
     workspace_id: str = Field(..., description="The Fabric workspace ID")
     tenant_id: str = Field(..., description="The Azure tenant ID")
-    semantic_model_name: Optional[str] = Field(
-        None, 
-        description="Name for the created semantic model. If not provided, uses source name."
+    semantic_model_name_prefix: str | None = Field(
+        None,
+        description="Prefix for semantic model names. Models are named '<prefix><metric_view_name>'."
     )
 
 
@@ -41,13 +34,6 @@ class ServicePrincipalConfig(BaseModel):
     tenant_id: str = Field(..., description="The Service Principal tenant ID")
 
 
-class SourceConfig(BaseModel):
-    """Base source system configuration."""
-    
-    name: str = Field(..., description="Name of the source catalog/database")
-    type: SourceType = Field(..., description="Type of source system")
-
-
 class BaseSourceMap(BaseModel):
     """
     Base configuration model for all source systems.
@@ -57,7 +43,6 @@ class BaseSourceMap(BaseModel):
     
     fabric: FabricConfig = Field(..., description="Target Fabric configuration")
     service_principal: ServicePrincipalConfig = Field(..., description="Service Principal credentials")
-    source: SourceConfig = Field(..., description="Source system configuration")
     
     @classmethod
     def from_yaml(cls, file_path: str) -> "BaseSourceMap":
@@ -78,7 +63,7 @@ class BaseSourceMap(BaseModel):
         if not path.exists():
             raise FileNotFoundError(f"Configuration file not found: {file_path}")
         
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
         
         return cls(**data)

@@ -5,8 +5,8 @@ This module defines the generic intermediate format that serves as the
 bridge between source-specific models and the Fabric semantic model format.
 """
 
-from typing import Optional
 from enum import Enum
+
 from pydantic import BaseModel, Field
 
 
@@ -47,11 +47,11 @@ class IntermediateColumn(BaseModel):
     
     name: str = Field(..., description="Column name")
     data_type: DataType = Field(..., description="Data type of the column")
-    description: Optional[str] = Field(None, description="Column description")
+    description: str | None = Field(None, description="Column description")
     is_hidden: bool = Field(False, description="Whether the column is hidden")
-    display_folder: Optional[str] = Field(None, description="Display folder for organization")
-    format_string: Optional[str] = Field(None, description="Format string for display")
-    source_column: Optional[str] = Field(None, description="Source column name if different")
+    display_folder: str | None = Field(None, description="Display folder for organization")
+    format_string: str | None = Field(None, description="Format string for display")
+    source_column: str | None = Field(None, description="Source column name if different")
 
 
 class IntermediateMeasure(BaseModel):
@@ -59,29 +59,29 @@ class IntermediateMeasure(BaseModel):
     
     name: str = Field(..., description="Measure name")
     expression: str = Field(..., description="DAX expression for the measure")
-    description: Optional[str] = Field(None, description="Measure description")
-    display_folder: Optional[str] = Field(None, description="Display folder for organization")
-    format_string: Optional[str] = Field(None, description="Format string for display")
+    description: str | None = Field(None, description="Measure description")
+    display_folder: str | None = Field(None, description="Display folder for organization")
+    format_string: str | None = Field(None, description="Format string for display")
     is_hidden: bool = Field(False, description="Whether the measure is hidden")
     
     # Original metric definition from source (for reference)
-    source_definition: Optional[str] = Field(None, description="Original source definition")
-    aggregation_type: Optional[AggregationType] = Field(None, description="Aggregation type")
+    source_definition: str | None = Field(None, description="Original source definition")
+    aggregation_type: AggregationType | None = Field(None, description="Aggregation type")
 
 
 class IntermediateTable(BaseModel):
     """Represents a table in the intermediate model."""
     
     name: str = Field(..., description="Table name")
-    description: Optional[str] = Field(None, description="Table description")
+    description: str | None = Field(None, description="Table description")
     columns: list[IntermediateColumn] = Field(default_factory=list, description="Table columns")
     measures: list[IntermediateMeasure] = Field(default_factory=list, description="Table measures")
     is_hidden: bool = Field(False, description="Whether the table is hidden")
     
     # Source information
-    source_schema: Optional[str] = Field(None, description="Source schema name")
-    source_table: Optional[str] = Field(None, description="Source table name")
-    source_query: Optional[str] = Field(None, description="Source SQL query if not direct table")
+    source_schema: str | None = Field(None, description="Source schema name")
+    source_table: str | None = Field(None, description="Source table name")
+    source_query: str | None = Field(None, description="Source SQL query if not direct table")
 
 
 class IntermediateRelationship(BaseModel):
@@ -109,7 +109,7 @@ class IntermediateSemanticModel(BaseModel):
     """
     
     name: str = Field(..., description="Model name")
-    description: Optional[str] = Field(None, description="Model description")
+    description: str | None = Field(None, description="Model description")
     tables: list[IntermediateTable] = Field(default_factory=list, description="Model tables")
     relationships: list[IntermediateRelationship] = Field(
         default_factory=list, 
@@ -118,7 +118,7 @@ class IntermediateSemanticModel(BaseModel):
     
     # Metadata
     source_system: str = Field(..., description="Source system type (e.g., DATABRICKS)")
-    source_name: Optional[str] = Field(None, description="Original source name/catalog")
+    source_name: str | None = Field(None, description="Original source name/catalog")
     
     def add_table(self, table: IntermediateTable) -> None:
         """Add a table to the model."""
@@ -128,7 +128,7 @@ class IntermediateSemanticModel(BaseModel):
         """Add a relationship to the model."""
         self.relationships.append(relationship)
     
-    def get_table(self, name: str) -> Optional[IntermediateTable]:
+    def get_table(self, name: str) -> IntermediateTable | None:
         """Get a table by name."""
         for table in self.tables:
             if table.name == name:
