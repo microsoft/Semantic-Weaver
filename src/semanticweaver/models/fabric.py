@@ -53,7 +53,10 @@ class FabricColumn(BaseModel):
         lines.append(f"{prop_indent}dataType: {self.dataType}")
 
         if self.sourceColumn:
-            lines.append(f"{prop_indent}sourceColumn: {self._quote_name(self.sourceColumn)}")
+            # Sanitize sourceColumn - replace newlines with spaces
+            # (multi-line expressions should not be in sourceColumn)
+            sanitized_source = " ".join(self.sourceColumn.split())
+            lines.append(f"{prop_indent}sourceColumn: {self._quote_name(sanitized_source)}")
 
         if self.isHidden:
             lines.append(f"{prop_indent}isHidden: true")
@@ -181,11 +184,18 @@ class FabricPartition(BaseModel):
 
         # M expression
         if self.source.get("expression"):
-            lines.append(f"{prop_indent}source =")
-            lines.append(f"{prop_indent}\t```")
-            for expr_line in self.source["expression"].split("\n"):
-                lines.append(f"{prop_indent}\t{expr_line}")
-            lines.append(f"{prop_indent}\t```")
+            expr = self.source["expression"]
+            expr_lines = expr.strip().split("\n")
+            
+            # For multi-line expressions, use proper TMDL indentation (no backticks)
+            if len(expr_lines) > 1:
+                lines.append(f"{prop_indent}source =")
+                expr_indent = prop_indent + "\t"
+                for expr_line in expr_lines:
+                    lines.append(f"{expr_indent}{expr_line}")
+            else:
+                # Single line expression
+                lines.append(f"{prop_indent}source = {expr_lines[0]}")
 
         return "\n".join(lines)
 
@@ -221,8 +231,8 @@ class FabricTable(BaseModel):
         lines.append(f"table {table_name}")
 
         # Table-level properties
-        if self.description:
-            lines.append(f"\tdescription: '''{self._escape_multiline(self.description)}'''")
+        # Note: 'description' is not a valid TMDL property at table level
+        # The description is stored in the model metadata but not in TMDL files
 
         if self.isHidden:
             lines.append(f"\tisHidden: true")
@@ -411,24 +421,35 @@ class FabricSemanticModel(BaseModel):
 
         Returns:
             Dictionary mapping file paths to TMDL content.
-            Keys are relative paths like 'model.tmdl', 'tables/TableName.tmdl'
+            Keys are relative paths like 'definition/model.tmdl', 'definition/tables/TableName.tmdl'
+            The 'definition/' prefix is required by the Fabric API.
         """
+        import json
+        
         files: dict[str, str] = {}
 
+        # Generate definition.pbism - required by Fabric API
+        # This file specifies the version and format of the semantic model definition
+        pbism_content = {
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/semanticModel/definitionProperties/1.0.0/schema.json",
+            "version": "4.0"  # Version 4.0 supports TMDL format
+        }
+        files["definition.pbism"] = json.dumps(pbism_content, indent=2)
+
         # Generate database.tmdl
-        files["database.tmdl"] = self._generate_database_tmdl()
+        files["definition/database.tmdl"] = self._generate_database_tmdl()
 
         # Generate model.tmdl
-        files["model.tmdl"] = self._generate_model_tmdl()
+        files["definition/model.tmdl"] = self._generate_model_tmdl()
 
         # Generate table files
         for table in self.tables:
             table_filename = self._sanitize_filename(table.name)
-            files[f"tables/{table_filename}.tmdl"] = table.to_tmdl()
+            files[f"definition/tables/{table_filename}.tmdl"] = table.to_tmdl()
 
         # Generate relationships.tmdl (if any relationships)
         if self.relationships:
-            files["relationships.tmdl"] = self._generate_relationships_tmdl()
+            files["definition/relationships.tmdl"] = self._generate_relationships_tmdl()
 
         return files
 
@@ -438,9 +459,6 @@ class FabricSemanticModel(BaseModel):
             f"database {self._quote_name(self.name)}",
             "",
         ]
-
-        if self.description:
-            lines.insert(1, f"\tdescription: '''{self._escape_multiline(self.description)}'''")
 
         return "\n".join(lines)
 

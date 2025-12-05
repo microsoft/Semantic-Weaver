@@ -136,6 +136,9 @@ class SemanticModelTransformer:
         """
         Transform a Databricks Metric View to Fabric semantic model representation.
 
+        This method extracts all tables from the source and joins, places dimensions
+        in their correct tables based on expr prefixes, and creates relationships.
+
         Args:
             metric_view: The Databricks Metric View to transform.
 
@@ -149,17 +152,27 @@ class SemanticModelTransformer:
             # Determine model name from metric view
             model_name = self._get_model_name(metric_view)
 
-            # Create the main table for the metric view
-            main_table = self._create_main_table(metric_view)
+            # Extract all tables from source and joins
+            table_info = self._extract_tables_from_metric_view(metric_view)
 
-            # Create relationships from joins (if any)
+            # Map dimensions to their respective tables based on expr prefixes
+            table_dimensions = self._map_dimensions_to_tables(
+                metric_view.dimensions, table_info
+            )
+
+            # Create tables with their respective columns
+            tables = self._create_tables_from_map(
+                table_info, table_dimensions, metric_view
+            )
+
+            # Create relationships from joins
             relationships = self._create_relationships_from_joins(metric_view)
 
             # Build the intermediate model
             return IntermediateSemanticModel(
                 name=model_name,
                 description=metric_view.comment,
-                tables=[main_table],
+                tables=tables,
                 relationships=relationships,
                 source_system="DATABRICKS",
                 source_name=metric_view.catalog_name,
@@ -169,6 +182,258 @@ class SemanticModelTransformer:
             raise TransformationError(
                 f"Failed to transform Databricks Metric View '{metric_view.name}': {e}"
             ) from e
+
+    def _extract_tables_from_metric_view(
+        self, metric_view: DatabricksMetricView
+    ) -> dict[str, dict]:
+        """
+        Extract all table information from the metric view source and joins.
+
+        Returns a dict mapping table alias -> table info:
+        {
+            "alias": {
+                "full_name": "catalog.schema.table",
+                "table_name": "table",
+                "alias": "alias",
+                "is_source": True/False
+            }
+        }
+        """
+        tables = {}
+
+        # Extract source table
+        source_parts = metric_view.source.split(".")
+        source_table_name = source_parts[-1] if source_parts else metric_view.source
+
+        # The source table's alias is the table name itself
+        tables[source_table_name] = {
+            "full_name": metric_view.source,
+            "table_name": source_table_name,
+            "alias": source_table_name,
+            "is_source": True,
+        }
+
+        # Extract tables from joins recursively
+        if metric_view.joins:
+            self._extract_tables_from_joins(metric_view.joins, tables)
+
+        return tables
+
+    def _extract_tables_from_joins(
+        self, joins: list[dict], tables: dict[str, dict], parent_alias: str | None = None
+    ) -> None:
+        """
+        Recursively extract table information from joins.
+
+        Args:
+            joins: List of join definitions
+            tables: Dict to populate with table info
+            parent_alias: Parent table alias for nested joins
+        """
+        for join in joins:
+            table_ref = join.get("table", "")
+            if not table_ref:
+                continue
+
+            # Parse the table reference (catalog.schema.table)
+            parts = table_ref.split(".")
+            table_name = parts[-1] if parts else table_ref
+
+            # Use alias from join if provided, otherwise use table name
+            alias = join.get("alias", table_name)
+
+            tables[alias] = {
+                "full_name": table_ref,
+                "table_name": table_name,
+                "alias": alias,
+                "is_source": False,
+            }
+
+            # Process nested joins if present
+            nested_joins = join.get("joins", [])
+            if nested_joins:
+                self._extract_tables_from_joins(nested_joins, tables, alias)
+
+    def _map_dimensions_to_tables(
+        self,
+        dimensions: list["DatabricksDimension"],
+        table_info: dict[str, dict],
+    ) -> dict[str, list["DatabricksDimension"]]:
+        """
+        Map dimensions to their respective tables based on expr prefixes.
+
+        Dimension expr can be:
+        - "column_name" -> belongs to source table
+        - "table_alias.column_name" -> belongs to specified table
+        - "table1.table2.column_name" -> nested join table (use innermost path)
+
+        Returns dict mapping table alias -> list of dimensions
+        """
+        table_dimensions: dict[str, list] = {alias: [] for alias in table_info}
+
+        # Find the source table alias
+        source_alias = None
+        for alias, info in table_info.items():
+            if info.get("is_source"):
+                source_alias = alias
+                break
+
+        for dimension in dimensions:
+            expr = dimension.expr
+            target_table = self._get_table_from_expr(expr, table_info, source_alias)
+            if target_table in table_dimensions:
+                table_dimensions[target_table].append(dimension)
+            elif source_alias:
+                # Fallback to source table
+                table_dimensions[source_alias].append(dimension)
+
+        return table_dimensions
+
+    def _get_table_from_expr(
+        self, expr: str, table_info: dict[str, dict], source_alias: str | None
+    ) -> str:
+        """
+        Determine which table a dimension expression belongs to.
+
+        Examples:
+        - "o_orderdate" -> source table (no prefix)
+        - "orders.o_orderstatus" -> "orders"
+        - "orders.customer.c_name" -> "customer"
+
+        Args:
+            expr: The dimension expression
+            table_info: Dict of table aliases
+            source_alias: The source table alias
+
+        Returns:
+            Table alias that owns this expression
+        """
+        # Split expression by dots to find table prefix
+        parts = expr.split(".")
+
+        if len(parts) == 1:
+            # No table prefix, belongs to source table
+            return source_alias or list(table_info.keys())[0]
+
+        # Check for nested references (e.g., "orders.customer.c_name")
+        # The table is determined by the path, last prefix before column
+        # For "orders.customer.c_name", the table is "customer"
+        for i in range(len(parts) - 1, 0, -1):
+            # Check from innermost to outermost
+            potential_alias = parts[i - 1]
+            if potential_alias in table_info:
+                return potential_alias
+
+        # If we have "table.column" format
+        if parts[0] in table_info:
+            return parts[0]
+
+        # Fallback to source table
+        return source_alias or list(table_info.keys())[0]
+
+    def _create_tables_from_map(
+        self,
+        table_info: dict[str, dict],
+        table_dimensions: dict[str, list["DatabricksDimension"]],
+        metric_view: DatabricksMetricView,
+    ) -> list[IntermediateTable]:
+        """
+        Create IntermediateTable objects from the table map.
+
+        Measures are placed on the source (fact) table.
+        For single-table scenarios, the source table uses the model name.
+        For multi-table scenarios, tables use their actual names.
+        """
+        tables = []
+        model_name = self._get_model_name(metric_view)
+
+        for alias, info in table_info.items():
+            dims = table_dimensions.get(alias, [])
+
+            # Convert dimensions to columns
+            columns = [self._dimension_to_column(dim, alias) for dim in dims]
+
+            # Measures go on the source (fact) table only
+            measures = []
+            is_source = info.get("is_source", False)
+            if is_source:
+                measures = [
+                    self._measure_to_intermediate(measure)
+                    for measure in metric_view.measures
+                ]
+
+            # Parse full table reference for source info
+            full_name = info.get("full_name", "")
+            parts = full_name.split(".")
+
+            source_schema = None
+            source_table = None
+            if len(parts) >= 3:
+                source_schema = parts[-2]
+                source_table = parts[-1]
+            elif len(parts) == 2:
+                source_schema = parts[0]
+                source_table = parts[1]
+            elif len(parts) == 1:
+                source_table = parts[0]
+
+            # Determine table name:
+            # - Source table uses model name for backward compatibility
+            # - Joined tables use their actual alias
+            table_name = model_name if is_source else alias
+
+            table = IntermediateTable(
+                name=table_name,
+                description=metric_view.comment if is_source else None,
+                columns=columns,
+                measures=measures,
+                is_hidden=False,
+                source_schema=source_schema,
+                source_table=source_table,
+                source_query=metric_view.filter if is_source else None,
+            )
+
+            tables.append(table)
+
+        return tables
+
+    def _dimension_to_column(
+        self, dimension: "DatabricksDimension", table_alias: str | None = None
+    ) -> IntermediateColumn:
+        """
+        Convert a Databricks dimension to an intermediate column.
+
+        Strips the table prefix from source_column if present.
+
+        Args:
+            dimension: The Databricks dimension to convert
+            table_alias: Optional table alias (used for multi-table scenarios)
+
+        Returns:
+            IntermediateColumn with proper column mapping
+        """
+        # Infer data type from expression or format
+        data_type = self._infer_data_type_from_dimension(dimension)
+
+        # Generate format string
+        format_string = self._format_to_string(dimension.format) if dimension.format else None
+
+        # Clean up source column - remove table prefix for the column reference
+        source_col = dimension.expr
+        parts = source_col.split(".")
+        if len(parts) > 1:
+            # Use just the column name part (last part)
+            source_col = parts[-1]
+
+        return IntermediateColumn(
+            name=dimension.name,
+            data_type=data_type,
+            description=dimension.comment,
+            is_hidden=False,
+            display_folder=None,
+            format_string=format_string,
+            source_column=source_col,
+        )
 
     def _get_model_name(self, metric_view: DatabricksMetricView) -> str:
         """Get a suitable model name from the metric view."""
@@ -182,10 +447,15 @@ class SemanticModelTransformer:
         return "UnnamedModel"
 
     def _create_main_table(self, metric_view: DatabricksMetricView) -> IntermediateTable:
-        """Create the main fact table from the metric view."""
+        """
+        Create the main fact table from the metric view.
+
+        DEPRECATED: Use _create_tables_from_map for multi-table support.
+        Kept for backward compatibility with single-table scenarios.
+        """
         # Convert dimensions to columns
         columns = [
-            self._dimension_to_column(dim) for dim in metric_view.dimensions
+            self._dimension_to_column(dim, "main") for dim in metric_view.dimensions
         ]
 
         # Convert measures
@@ -205,24 +475,6 @@ class SemanticModelTransformer:
             source_schema=source_schema,
             source_table=source_table,
             source_query=metric_view.filter,  # Store filter as query reference
-        )
-
-    def _dimension_to_column(self, dimension: DatabricksDimension) -> IntermediateColumn:
-        """Convert a Databricks dimension to an intermediate column."""
-        # Infer data type from expression or format
-        data_type = self._infer_data_type_from_dimension(dimension)
-
-        # Generate format string
-        format_string = self._format_to_string(dimension.format) if dimension.format else None
-
-        return IntermediateColumn(
-            name=dimension.name,
-            data_type=data_type,
-            description=dimension.comment,
-            is_hidden=False,
-            display_folder=None,
-            format_string=format_string,
-            source_column=dimension.expr,
         )
 
     def _measure_to_intermediate(self, measure: DatabricksMeasure) -> IntermediateMeasure:
@@ -634,31 +886,193 @@ class SemanticModelTransformer:
         """
         Create relationships from Metric View joins.
 
+        Recursively processes joins to create relationships for nested joins as well.
+
         Args:
             metric_view: The metric view with optional joins
 
         Returns:
             List of intermediate relationships
         """
-        relationships = []
+        relationships: list[IntermediateRelationship] = []
 
         if not metric_view.joins:
             return relationships
 
-        for idx, join in enumerate(metric_view.joins):
-            # Parse join definition
-            # Databricks joins have format like:
-            # { "type": "left", "table": "catalog.schema.dim_table", "on": "fact.key = dim.key" }
-            rel = self._parse_join_to_relationship(join, idx)
-            if rel:
-                relationships.append(rel)
+        # Get model name (used for source table in relationships)
+        model_name = self._get_model_name(metric_view)
+
+        # Get source table alias for mapping
+        source_parts = metric_view.source.split(".")
+        source_alias = source_parts[-1] if source_parts else "source"
+
+        # Create alias to table name mapping (source table uses model name)
+        alias_to_name = {source_alias: model_name}
+
+        # Build mapping for all joined tables
+        self._build_alias_map(metric_view.joins, alias_to_name)
+
+        self._process_joins_recursive(
+            joins=metric_view.joins,
+            parent_alias=source_alias,
+            relationships=relationships,
+            index_counter=[0],
+            alias_to_name=alias_to_name,
+        )
 
         return relationships
+
+    def _build_alias_map(self, joins: list[dict], alias_to_name: dict[str, str]) -> None:
+        """Build a mapping of table aliases to table names for relationships."""
+        for join in joins:
+            table_ref = join.get("table", "")
+            if not table_ref:
+                continue
+
+            parts = table_ref.split(".")
+            table_name = parts[-1] if parts else table_ref
+            alias = join.get("alias", table_name)
+
+            # Joined tables use their alias as the name
+            alias_to_name[alias] = alias
+
+            # Process nested joins
+            nested_joins = join.get("joins", [])
+            if nested_joins:
+                self._build_alias_map(nested_joins, alias_to_name)
+
+    def _process_joins_recursive(
+        self,
+        joins: list[dict],
+        parent_alias: str,
+        relationships: list[IntermediateRelationship],
+        index_counter: list[int],
+        alias_to_name: dict[str, str],
+    ) -> None:
+        """
+        Recursively process joins and create relationships.
+
+        Args:
+            joins: List of join definitions
+            parent_alias: The alias of the parent table (for nested joins)
+            relationships: List to append relationships to
+            index_counter: Counter for unique relationship naming
+            alias_to_name: Mapping of aliases to actual table names
+        """
+        for join in joins:
+            # Get table alias
+            table_ref = join.get("table", "")
+            parts = table_ref.split(".")
+            table_name = parts[-1] if parts else table_ref
+            alias = join.get("alias", table_name)
+
+            # Parse the ON clause
+            join_on = join.get("on", "")
+            join_type = join.get("type", "left")
+
+            if table_ref and join_on:
+                rel = self._parse_join_on_clause(
+                    on_clause=join_on,
+                    parent_alias=parent_alias,
+                    join_alias=alias,
+                    join_type=join_type,
+                    index=index_counter[0],
+                    alias_to_name=alias_to_name,
+                )
+                if rel:
+                    relationships.append(rel)
+                    index_counter[0] += 1
+
+            # Process nested joins
+            nested_joins = join.get("joins", [])
+            if nested_joins:
+                self._process_joins_recursive(
+                    joins=nested_joins,
+                    parent_alias=alias,
+                    relationships=relationships,
+                    index_counter=index_counter,
+                    alias_to_name=alias_to_name,
+                )
+
+    def _parse_join_on_clause(
+        self,
+        on_clause: str,
+        parent_alias: str,
+        join_alias: str,
+        join_type: str,
+        index: int,
+        alias_to_name: dict[str, str] | None = None,
+    ) -> IntermediateRelationship | None:
+        """
+        Parse a join ON clause to create a relationship.
+
+        Args:
+            on_clause: The ON clause (e.g., "orders.o_custkey = customer.c_custkey")
+            parent_alias: The parent table alias
+            join_alias: The joined table alias
+            join_type: The join type (left, inner, etc.)
+            index: Index for unique naming
+            alias_to_name: Mapping of aliases to actual table names
+
+        Returns:
+            IntermediateRelationship or None if parsing fails
+        """
+        try:
+            # Handle different ON clause formats:
+            # "table1.col1 = table2.col2"
+            # "col1 = col2" (implicit table references)
+            match = re.match(
+                r"(?:(\w+)\.)?(\w+)\s*=\s*(?:(\w+)\.)?(\w+)",
+                on_clause.strip()
+            )
+            if not match:
+                return None
+
+            left_table, left_col, right_table, right_col = match.groups()
+
+            # Determine from/to based on which side matches which alias
+            # Convention: from = many side (fact), to = one side (dimension)
+            if left_table == join_alias or (not left_table and not right_table):
+                # Left side is the joined table
+                from_table = parent_alias
+                from_col = right_col
+                to_table = join_alias
+                to_col = left_col
+            else:
+                # Right side is the joined table
+                from_table = parent_alias
+                from_col = left_col
+                to_table = join_alias
+                to_col = right_col
+
+            # Convert aliases to actual table names
+            if alias_to_name:
+                from_table = alias_to_name.get(from_table, from_table)
+                to_table = alias_to_name.get(to_table, to_table)
+
+            # Determine cardinality from join type
+            cardinality = RelationshipCardinality.MANY_TO_ONE
+            if join_type.lower() in ("inner", "cross"):
+                cardinality = RelationshipCardinality.MANY_TO_MANY
+
+            return IntermediateRelationship(
+                name=f"Rel_{from_table}_{to_table}_{index}",
+                from_table=from_table,
+                from_column=from_col,
+                to_table=to_table,
+                to_column=to_col,
+                cardinality=cardinality,
+                is_active=True,
+                cross_filter_direction="Single",
+            )
+
+        except Exception:
+            return None
 
     def _parse_join_to_relationship(
         self, join: dict, index: int
     ) -> IntermediateRelationship | None:
-        """Parse a single join definition to a relationship."""
+        """Parse a single join definition to a relationship (legacy method)."""
         try:
             join_table = join.get("table", "")
             join_on = join.get("on", "")

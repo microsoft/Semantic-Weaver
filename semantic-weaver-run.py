@@ -3,19 +3,26 @@ Semantic Weaver - Run Script
 
 This script demonstrates how to use Semantic Weaver to connect to
 Databricks Unity Catalog and extract semantic model definitions,
-then transform them to Power BI Semantic Models.
+then transform them to Power BI Semantic Models and optionally deploy
+them to a Microsoft Fabric Workspace.
 """
 
+import argparse
 import asyncio
 
 import yaml
 
+from semanticweaver.core.api import FabricClient
 from semanticweaver.core.transformer import SemanticModelTransformer
 from semanticweaver.plugins.databricks import DatabricksSourceMap
 
 
-async def main():
-    """Main entry point for Semantic Weaver."""
+async def main(deploy: bool = False):
+    """Main entry point for Semantic Weaver.
+    
+    Args:
+        deploy: If True, deploy the semantic models to Fabric.
+    """
     print("Semantic Weaver - Databricks to Fabric Migration")
     print("=" * 50)
 
@@ -25,6 +32,7 @@ async def main():
     print(f"   Catalogs: {', '.join(config.databricks.get_catalog_names())}")
     print(f"   Workspace: {config.databricks.workspace_url}")
     print(f"   Prefix: {config.fabric.semantic_model_name_prefix or '(none)'}")
+    print(f"   Target Fabric Workspace: {config.fabric.workspace_id}")
 
     # Get the plugin
     print("\n2. Initializing Databricks plugin...")
@@ -80,6 +88,7 @@ async def main():
     print("\n" + "=" * 50)
     print("\n7. Transforming Metric Views to Power BI Semantic Models...")
 
+    fabric_models = []
     if not all_metric_views:
         print("   (no metric views to transform)")
     else:
@@ -87,7 +96,6 @@ async def main():
             name_prefix=config.fabric.semantic_model_name_prefix
         )
 
-        fabric_models = []
         for mv in all_metric_views:
             try:
                 # Transform to intermediate model first
@@ -111,9 +119,45 @@ async def main():
             for line in model_yaml.strip().split('\n'):
                 print(f"   {line}")
 
+    # Deploy to Fabric (if requested)
+    if deploy and fabric_models:
+        print("\n" + "=" * 50)
+        print("\n9. Deploying Semantic Models to Microsoft Fabric...")
+        
+        fabric_client = FabricClient(
+            workspace_id=config.fabric.workspace_id,
+            service_principal=config.service_principal,
+        )
+        
+        try:
+            await fabric_client.authenticate()
+            print("   ✓ Authenticated to Microsoft Fabric")
+            
+            for model in fabric_models:
+                try:
+                    model_id = await fabric_client.deploy_semantic_model(model)
+                    print(f"   ✓ Deployed: {model.name} (ID: {model_id})")
+                except Exception as e:
+                    print(f"   ✗ Failed to deploy {model.name}: {e}")
+            
+            await fabric_client.close()
+            
+        except Exception as e:
+            print(f"   ✗ Failed to authenticate to Fabric: {e}")
+
     print("\n" + "=" * 50)
     print("Semantic Weaver completed.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(
+        description="Semantic Weaver - Migrate semantic models from Databricks to Fabric"
+    )
+    parser.add_argument(
+        "--deploy",
+        action="store_true",
+        help="Deploy the semantic models to Microsoft Fabric",
+    )
+    args = parser.parse_args()
+    
+    asyncio.run(main(deploy=args.deploy))

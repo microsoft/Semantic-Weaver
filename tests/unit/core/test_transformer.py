@@ -717,3 +717,300 @@ class TestEndToEndTransformation:
         assert len(fabric_model.tables) == 1
         assert len(fabric_model.tables[0].columns) == 2
         assert len(fabric_model.tables[0].measures) == 3
+
+
+class TestMultiTableTransformation:
+    """Tests for multi-table transformation with joins."""
+
+    def test_transform_with_single_join(self):
+        """Test transformation with one join creates two tables and one relationship."""
+        transformer = SemanticModelTransformer()
+
+        metric_view = DatabricksMetricView(
+            version="1.1",
+            name="orders_with_customers",
+            source="catalog.schema.orders",
+            dimensions=[
+                # Dimensions on the source table (orders)
+                DatabricksDimension(name="order_date", expr="o_orderdate"),
+                DatabricksDimension(name="order_status", expr="o_orderstatus"),
+                # Dimensions from joined table (customer)
+                DatabricksDimension(name="customer_name", expr="customer.c_name"),
+                DatabricksDimension(name="customer_segment", expr="customer.c_mktsegment"),
+            ],
+            measures=[
+                DatabricksMeasure(name="total_revenue", expr="SUM(o_totalprice)"),
+            ],
+            joins=[
+                {
+                    "type": "left",
+                    "table": "catalog.schema.customer",
+                    "on": "orders.o_custkey = customer.c_custkey",
+                }
+            ],
+        )
+
+        result = transformer.transform(metric_view)
+
+        # Should have 2 tables: orders_with_customers (source) and customer
+        assert len(result.tables) == 2
+
+        # Find tables by name
+        source_table = next((t for t in result.tables if t.name == "orders_with_customers"), None)
+        customer_table = next((t for t in result.tables if t.name == "customer"), None)
+
+        assert source_table is not None, "Source table should exist"
+        assert customer_table is not None, "Customer table should exist"
+
+        # Source table should have 2 columns (order_date, order_status)
+        assert len(source_table.columns) == 2
+        source_col_names = {c.name for c in source_table.columns}
+        assert "order_date" in source_col_names
+        assert "order_status" in source_col_names
+
+        # Measures should be on source table
+        assert len(source_table.measures) == 1
+        assert source_table.measures[0].name == "total_revenue"
+
+        # Customer table should have 2 columns (customer_name, customer_segment)
+        assert len(customer_table.columns) == 2
+        customer_col_names = {c.name for c in customer_table.columns}
+        assert "customer_name" in customer_col_names
+        assert "customer_segment" in customer_col_names
+
+        # Customer table should have no measures
+        assert len(customer_table.measures) == 0
+
+        # Should have 1 relationship
+        assert len(result.relationships) == 1
+        rel = result.relationships[0]
+        assert rel.from_table == "orders_with_customers"
+        assert rel.to_table == "customer"
+        assert rel.cardinality == RelationshipCardinality.MANY_TO_ONE
+
+    def test_transform_with_nested_joins(self):
+        """Test transformation with nested joins creates all tables and relationships."""
+        transformer = SemanticModelTransformer()
+
+        metric_view = DatabricksMetricView(
+            version="1.1",
+            name="lineitem_metrics",
+            source="catalog.schema.lineitem",
+            dimensions=[
+                # Source table columns
+                DatabricksDimension(name="shipdate", expr="l_shipdate"),
+                # First level join (orders)
+                DatabricksDimension(name="order_status", expr="orders.o_orderstatus"),
+                DatabricksDimension(name="order_date", expr="orders.o_orderdate"),
+                # Nested join (customer, joined through orders)
+                DatabricksDimension(name="customer_name", expr="orders.customer.c_name"),
+            ],
+            measures=[
+                DatabricksMeasure(name="total_extended_price", expr="SUM(l_extendedprice)"),
+            ],
+            joins=[
+                {
+                    "type": "left",
+                    "table": "catalog.schema.orders",
+                    "on": "lineitem.l_orderkey = orders.o_orderkey",
+                    "joins": [
+                        {
+                            "type": "left",
+                            "table": "catalog.schema.customer",
+                            "on": "orders.o_custkey = customer.c_custkey",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        result = transformer.transform(metric_view)
+
+        # Should have 3 tables: lineitem_metrics (source), orders, customer
+        assert len(result.tables) == 3
+
+        table_names = {t.name for t in result.tables}
+        assert "lineitem_metrics" in table_names
+        assert "orders" in table_names
+        assert "customer" in table_names
+
+        # Verify column distribution
+        source_table = next(t for t in result.tables if t.name == "lineitem_metrics")
+        orders_table = next(t for t in result.tables if t.name == "orders")
+        customer_table = next(t for t in result.tables if t.name == "customer")
+
+        # Source should have shipdate column and measures
+        assert len(source_table.columns) == 1
+        assert source_table.columns[0].name == "shipdate"
+        assert len(source_table.measures) == 1
+
+        # Orders should have order_status and order_date
+        assert len(orders_table.columns) == 2
+        orders_col_names = {c.name for c in orders_table.columns}
+        assert "order_status" in orders_col_names
+        assert "order_date" in orders_col_names
+        assert len(orders_table.measures) == 0
+
+        # Customer should have customer_name
+        assert len(customer_table.columns) == 1
+        assert customer_table.columns[0].name == "customer_name"
+        assert len(customer_table.measures) == 0
+
+        # Should have 2 relationships
+        assert len(result.relationships) == 2
+
+    def test_dimension_source_column_strips_table_prefix(self):
+        """Test that source_column strips table prefixes from expr."""
+        transformer = SemanticModelTransformer()
+
+        metric_view = DatabricksMetricView(
+            version="1.1",
+            name="test_model",
+            source="catalog.schema.fact_table",
+            dimensions=[
+                DatabricksDimension(name="dim_col", expr="dim_table.column_name"),
+            ],
+            measures=[],
+            joins=[
+                {
+                    "type": "left",
+                    "table": "catalog.schema.dim_table",
+                    "on": "fact_table.key = dim_table.key",
+                }
+            ],
+        )
+
+        result = transformer.transform(metric_view)
+
+        # Find the dim_table
+        dim_table = next(t for t in result.tables if t.name == "dim_table")
+        assert len(dim_table.columns) == 1
+
+        # source_column should be just "column_name", not "dim_table.column_name"
+        assert dim_table.columns[0].source_column == "column_name"
+
+    def test_relationship_uses_model_name_for_source_table(self):
+        """Test that relationships use the model name for the source table."""
+        transformer = SemanticModelTransformer()
+
+        metric_view = DatabricksMetricView(
+            version="1.1",
+            name="my_custom_model",
+            source="catalog.schema.base_table",
+            dimensions=[
+                DatabricksDimension(name="col1", expr="col1"),
+                DatabricksDimension(name="dim_col", expr="dim.dim_column"),
+            ],
+            measures=[],
+            joins=[
+                {
+                    "type": "left",
+                    "table": "catalog.schema.dim",
+                    "on": "base_table.key = dim.key",
+                }
+            ],
+        )
+
+        result = transformer.transform(metric_view)
+
+        # The relationship should reference the model name, not "base_table"
+        assert len(result.relationships) == 1
+        rel = result.relationships[0]
+        assert rel.from_table == "my_custom_model"  # Model name
+        assert rel.to_table == "dim"  # Joined table alias
+
+    def test_transform_without_joins_single_table(self):
+        """Test that transformation without joins creates a single table."""
+        transformer = SemanticModelTransformer()
+
+        metric_view = DatabricksMetricView(
+            version="1.1",
+            name="simple_model",
+            source="catalog.schema.fact_table",
+            dimensions=[
+                DatabricksDimension(name="col1", expr="column1"),
+                DatabricksDimension(name="col2", expr="column2"),
+            ],
+            measures=[
+                DatabricksMeasure(name="measure1", expr="SUM(value)"),
+            ],
+        )
+
+        result = transformer.transform(metric_view)
+
+        # Should have exactly 1 table
+        assert len(result.tables) == 1
+        assert result.tables[0].name == "simple_model"
+
+        # All dimensions should be in the table
+        assert len(result.tables[0].columns) == 2
+
+        # Measure should be in the table
+        assert len(result.tables[0].measures) == 1
+
+        # No relationships
+        assert len(result.relationships) == 0
+
+    def test_extract_tables_from_metric_view(self):
+        """Test the helper method that extracts table info."""
+        transformer = SemanticModelTransformer()
+
+        metric_view = DatabricksMetricView(
+            version="1.1",
+            name="test",
+            source="catalog.schema.fact",
+            dimensions=[],
+            measures=[],
+            joins=[
+                {
+                    "table": "catalog.schema.dim1",
+                    "on": "fact.k = dim1.k",
+                    "joins": [
+                        {
+                            "table": "catalog.schema.dim2",
+                            "alias": "d2",
+                            "on": "dim1.k = d2.k",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        table_info = transformer._extract_tables_from_metric_view(metric_view)
+
+        # Should have 3 tables: fact (source), dim1, d2 (aliased)
+        assert len(table_info) == 3
+        assert "fact" in table_info
+        assert "dim1" in table_info
+        assert "d2" in table_info
+
+        # Verify source flag
+        assert table_info["fact"]["is_source"] is True
+        assert table_info["dim1"]["is_source"] is False
+        assert table_info["d2"]["is_source"] is False
+
+    def test_get_table_from_expr(self):
+        """Test the helper that determines table from expression."""
+        transformer = SemanticModelTransformer()
+
+        table_info = {
+            "fact": {"is_source": True},
+            "orders": {"is_source": False},
+            "customer": {"is_source": False},
+        }
+
+        # No prefix -> source table
+        assert transformer._get_table_from_expr("column1", table_info, "fact") == "fact"
+
+        # Single prefix -> that table
+        assert transformer._get_table_from_expr("orders.o_status", table_info, "fact") == "orders"
+
+        # Nested prefix -> innermost valid table
+        assert transformer._get_table_from_expr(
+            "orders.customer.c_name", table_info, "fact"
+        ) == "customer"
+
+        # Unknown prefix -> source table
+        assert transformer._get_table_from_expr(
+            "unknown.column", table_info, "fact"
+        ) == "fact"
